@@ -150,7 +150,7 @@ async function diagLista(page) {
   return page.evaluate(() => {
     const n = (s) => (s || '').replace(/\s+/g, ' ').trim();
     const cbs = [...document.querySelectorAll('input[type=checkbox]')];
-    const amostra = cbs.slice(0, 6).map((i) => n((i.closest('label') || i.parentElement?.parentElement || i.parentElement)?.textContent).slice(0, 40));
+    const amostra = cbs.slice(0, 40).map((i) => n((i.closest('label') || i.parentElement?.parentElement || i.parentElement)?.textContent).slice(0, 60));
     return { checkboxes: cbs.length, amostra, paginacao: !!document.querySelector('.pagination'), url: location.pathname };
   }).catch(() => ({}));
 }
@@ -258,25 +258,23 @@ async function prepararRelatorio(page, nomes) {
     if (txt) await b.type(txt, { delay: 25 });
     await sleep(900);
   };
-  const marcarTodos = async (comBusca) => {
+  const marcarTodos = async (comBusca, lista) => {
     const faltou = [];
-    for (const nome of nomes) {
+    for (const nome of lista) {
       await buscar(comBusca ? nome : '');
       if (!(await selecionarEventoNaLista(page, nome))) faltou.push(nome);
     }
     return faltou;
   };
-  let faltou = await marcarTodos(true);
-  let qtdSel = await contarSelecionados(page);
-  if (faltou.length || (qtdSel != null && qtdSel !== nomes.length)) { // plano B: sem busca, percorrendo as páginas da lista
-    faltou = await marcarTodos(false);
-    qtdSel = await contarSelecionados(page);
-  }
+  let faltou = await marcarTodos(true, nomes);
+  if (faltou.length) faltou = await marcarTodos(false, faltou); // plano B só para os que faltaram, sem busca
+  const qtdSel = await contarSelecionados(page);
   log(`Eventos selecionados na tela: ${qtdSel ?? '?'} de ${nomes.length}`);
   if (faltou.length || (qtdSel != null && qtdSel !== nomes.length)) {
     await dump(page, 'diag-relatorio');
     const d = await diagLista(page);
-    throw new Error(`Não consegui marcar todos os eventos (${nomes.join(' + ')}). Selecionados na tela: ${qtdSel ?? '?'}${faltou.length ? `; não achei: ${faltou.join(', ')}` : ''}. Caixinhas na página: ${d.checkboxes ?? '?'}; exemplos: ${(d.amostra || []).join(' | ')} (veja data/diag-relatorio.png e .html)`);
+    if (faltou.length) throw new Error(`Evento(s) não encontrado(s) na lista do admin: ${faltou.join(' | ')}. Confira o nome exato na aba Config. Nomes na página: ${(d.amostra || []).join(' | ')}`);
+    throw new Error(`Selecionados na tela: ${qtdSel} de ${nomes.length}; confira se há eventos repetidos na Config. Nomes na página: ${(d.amostra || []).join(' | ')}`);
   }
   await buscar(''); // deixa a lista completa antes de gerar
 

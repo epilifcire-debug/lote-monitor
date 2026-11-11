@@ -1,10 +1,10 @@
-// Cliente mínimo do Supabase (REST). Usa a chave de serviço, que só existe no servidor.
+﻿// Cliente mínimo do Supabase (REST). Usa a chave de serviço, que só existe no servidor.
 function criarSb({ url, key }) {
   const base = String(url || '').replace(/\/$/, '') + '/rest/v1/';
   async function chamar(metodo, caminho, corpo, prefer) {
     const r = await fetch(base + caminho, {
       method: metodo,
-      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Prefer: prefer || 'return=minimal' },
+      headers: { apikey: key, ...(String(key).startsWith('eyJ') ? { Authorization: `Bearer ${key}` } : {}), 'Content-Type': 'application/json', Prefer: prefer || 'return=minimal' },
       body: corpo === undefined ? undefined : JSON.stringify(corpo),
       signal: AbortSignal.timeout(20000),
     });
