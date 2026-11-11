@@ -1,0 +1,16 @@
+services:
+  lote-monitor:
+    build: .
+    container_name: lote-monitor
+    restart: unless-stopped
+    env_file: .env
+    init: true
+    shm_size: 128m          # Chrome usa /dev/shm; evita travar em memória compartilhada pequena
+    mem_limit: 480m         # teto rígido (a máquina Micro tem 1 GB e o PointBot já usa ~384 MiB)
+    memswap_limit: 900m     # permite usar o swap da máquina em picos
+    cpus: 0.5
+    volumes:
+      - ./data:/app/data
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }

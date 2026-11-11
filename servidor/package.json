@@ -1,0 +1,9 @@
+{
+  "name": "lote-monitor-servidor",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Monitor de lotes do Point do Ingresso Admin - servico 24h (Oracle) que grava no Supabase e avisa no Telegram",
+  "main": "servidor.js",
+  "scripts": { "start": "node servidor.js", "test": "node teste/rodar.js" },
+  "dependencies": { "cheerio": "1.0.0", "puppeteer-core": "23.11.1" }
+}
