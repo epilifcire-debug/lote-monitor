@@ -46,6 +46,29 @@ const res = (total, tg = 5000) => ({ alvo: ALVO, total, totalGeral: tg, detalhe:
   t += 5 * 60_000; proximo = () => ({ resultados: [res(210)], modo: 'rapido', ms: 300 });
   await svc.passo(); assert.strictEqual(banco.alertas.length, 1, 'não repete o alerta'); assert.strictEqual(msgs.length, 1);
 
+
+  // resumo diário + backup mensal (antes de apagar o histórico antigo)
+  {
+    const diarios = []; const apagou = []; const enviados = [];
+    const sb2 = { ...sb, diario: async (l) => { diarios.push(...l); }, leiturasEntre: async () => [{ em: '2026-11-01T10:00:00.000Z', alvo_nome: 'Bloco, "V"', alvo_id: 'v', total: 10, variacao: 2, total_geral: 50, meta: 200 }], limparAntigas: async (x) => { apagou.push(x); } };
+    const tg2 = { configurado: true, enviar: async () => true, enviarArquivo: async (n, c) => { enviados.push([n, c]); return true; } };
+    const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'lm-bk-'));
+    let t2 = 1_800_000_000_000; let r2 = 100;
+    const bot2 = { executar: async () => ({ resultados: [res(r2)], modo: 'rapido', ms: 300 }) };
+    const svc3 = criarServico({ bot: bot2, sb: sb2, tg: tg2, estado: criarEstado(fs.mkdtempSync(path.join(os.tmpdir(), 'lm-e-'))), admin: { url: 'x', user: 'u', pass: 'p' }, pastaDados: pasta, agora: () => t2 });
+    await svc3.passo();
+    assert.strictEqual(diarios.length, 1); assert.strictEqual(diarios[0].total, 100); assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(diarios[0].dia));
+    t2 += 60_000; await svc3.passo(); // aguardando -> manutenção (1ª vez faz o backup)
+    const bks = fs.readdirSync(path.join(pasta, 'backups')); assert.strictEqual(bks.length, 1);
+    const csv = fs.readFileSync(path.join(pasta, 'backups', bks[0]), 'utf8');
+    assert.ok(csv.includes('em,evento,total_lotes') && csv.includes('"Bloco, ""V"""'));
+    assert.strictEqual(enviados.length, 1); assert.ok(enviados[0][0].endsWith('.csv'));
+    assert.strictEqual(apagou.length, 1);
+    assert.ok(Date.parse(apagou[0]) <= t2 - 29 * 24 * 3600000, 'só apaga o que tem mais de 30 dias');
+    t2 += 25 * 3600000; r2 = 120; await svc3.passo(); await svc3.passo();
+    assert.strictEqual(fs.readdirSync(path.join(pasta, 'backups')).length, 1, 'backup só a cada 30 dias');
+  }
+
   // serviço reinicia: lembra que já avisou (estado em disco)
   const svc2 = criarServico({ bot, sb, tg, estado: criarEstado(dir), admin: { url: 'http://x', user: 'u', pass: 'p' }, agora: () => t });
   await svc2.passo(); assert.strictEqual(banco.alertas.length, 1, 'reinício não reenvia alerta');
@@ -87,8 +110,9 @@ const res = (total, tg = 5000) => ({ alvo: ALVO, total, totalGeral: tg, detalhe:
   assert.deepStrictEqual(await real.config(), { id: 1, ativo: true });
   await real.status({ rodando: true }); await real.leituras([{ total: 1 }]); await real.alerta({ total: 1 }); await real.limparAntigas('2026-01-01T00:00:00.000Z');
   assert.deepStrictEqual(pedidos.map((p) => `${p.m} ${p.u.split('?')[0]}`), ['GET /rest/v1/lm_config', 'PATCH /rest/v1/lm_status', 'POST /rest/v1/lm_leituras', 'POST /rest/v1/lm_alertas', 'DELETE /rest/v1/lm_leituras']);
-  assert.ok(pedidos.every((p) => p.h.apikey === 'CHAVE' && p.h.authorization === 'Bearer CHAVE'));
+  assert.ok(pedidos.every((p) => p.h.apikey === 'CHAVE' && p.h.authorization === undefined)); // chave nova (sb_secret_...) não vai em Authorization;
   assert.strictEqual(pedidos[1].u, '/rest/v1/lm_status?id=eq.1');
+  { const n = pedidos.length; await criarSb({ url: base + '/', key: 'eyJabc.def.ghi' }).config(); const u = pedidos[n]; assert.ok(u.h.apikey === 'eyJabc.def.ghi' && u.h.authorization === 'Bearer eyJabc.def.ghi'); } // chave JWT antiga leva Bearer
   const tgReal = criarTelegram({ token: 'TK', chatId: '42', api: base });
   assert.strictEqual(await tgReal.enviar('oi'), true); const ult = pedidos[pedidos.length - 1];
   assert.strictEqual(ult.u, '/botTK/sendMessage'); assert.deepStrictEqual(JSON.parse(ult.b).chat_id, '42');

@@ -46,7 +46,7 @@ const traduzErro = (m) => {
 };
 
 /* ---------- estado ---------- */
-const S = { sb: null, user: null, papel: null, tab: 'painel', config: null, status: null, alertas: [], leituras: [], maxAlertaId: null, hAlvo: null, users: null, ultimaLeitura: null, canal: null, timer: null, tick: null };
+const S = { sb: null, user: null, papel: null, tab: 'painel', config: null, status: null, alertas: [], leituras: [], diario: [], maxAlertaId: null, hAlvo: null, users: null, ultimaLeitura: null, canal: null, timer: null, tick: null };
 const root = document.getElementById('app');
 
 /* ---------- alarme sonoro (só toca com o app aberto) ---------- */
@@ -111,6 +111,11 @@ async function carregarAlertas() {
   if (S.maxAlertaId == null) { S.maxAlertaId = max; return; } // primeira carga: não toca alarme por alerta antigo
   const novos = S.alertas.filter((a) => a.id > S.maxAlertaId);
   if (novos.length) { S.maxAlertaId = max; mostrarAlarme(novos[0]); }
+}
+async function carregarDiario() {
+  let q = S.sb.from('lm_diario').select('*').order('dia', { ascending: false }).limit(400);
+  if (S.hAlvo) q = q.eq('alvo_id', S.hAlvo);
+  const r = await q; S.diario = r.error ? [] : (r.data || []); // tabela ausente (SQL 04 ainda não rodou) não quebra a tela
 }
 async function carregarLeituras() {
   let q = S.sb.from('lm_leituras').select('*').order('em', { ascending: false }).limit(300);
@@ -288,7 +293,7 @@ function pintarPainel() {
 
 /* ---------- Histórico ---------- */
 async function abrirHistorico() {
-  try { await carregarConfig(); S.hAlvo = S.hAlvo || S.config.alvos?.[0]?.id || null; await carregarLeituras(); S.erroRede = null; } catch (e) { S.erroRede = traduzErro(e.message); }
+  try { await carregarConfig(); S.hAlvo = S.hAlvo || S.config.alvos?.[0]?.id || null; await carregarLeituras(); await carregarDiario(); S.erroRede = null; } catch (e) { S.erroRede = traduzErro(e.message); }
   pintarHistorico();
 }
 function grafico(pontos, meta) {
@@ -314,10 +319,17 @@ function grafico(pontos, meta) {
   [[x0, 'start'], [x1, 'end']].forEach(([x, anchor]) => { const t = svgEl('text', { x: X(x), y: H - 8, 'text-anchor': anchor }); t.textContent = new Date(x).toLocaleString('pt-BR', { timeZone: TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); svg.append(t); });
   return svg;
 }
+function tabelaDiaria() {
+  const d = S.diario || [];
+  const fmtDia = (x) => x.split('-').reverse().join('/');
+  return h('table', {}, h('thead', {}, h('tr', {}, h('th', { text: 'Dia' }), h('th', { class: 'n', text: 'Lotes' }), h('th', { class: 'n', text: 'No dia' }), h('th', { class: 'n', text: 'Total geral' }))),
+    h('tbody', {}, d.map((x, i) => { const ant = d[i + 1]; const v = ant ? x.total - ant.total : null;
+      return h('tr', {}, h('td', { text: fmtDia(x.dia) }), h('td', { class: 'n', text: fmtN(x.total) }), h('td', { class: 'n', text: v == null ? '—' : (v > 0 ? '+' : '') + v }), h('td', { class: 'n', text: fmtN(x.total_geral) })); })));
+}
 function pintarHistorico() {
   const v = document.getElementById('view'); if (!v) return;
   const alvos = S.config?.alvos || [];
-  const sel = h('select', { onchange: async (e) => { S.hAlvo = e.target.value; try { await carregarLeituras(); } catch (x) { S.erroRede = traduzErro(x.message); } pintarHistorico(); } }, alvos.map((a) => h('option', { value: a.id, text: a.nome })));
+  const sel = h('select', { onchange: async (e) => { S.hAlvo = e.target.value; try { await carregarLeituras(); await carregarDiario(); } catch (x) { S.erroRede = traduzErro(x.message); } pintarHistorico(); } }, alvos.map((a) => h('option', { value: a.id, text: a.nome })));
   sel.value = S.hAlvo || '';
   const alvo = alvos.find((a) => a.id === S.hAlvo);
   const asc = [...S.leituras].reverse();
@@ -326,6 +338,7 @@ function pintarHistorico() {
   trocar(v, 
     S.erroRede ? h('div', { class: 'err', text: S.erroRede }) : null,
     h('section', { class: 'card' }, h('h2', { text: 'Evento' }), sel, h('div', { style: 'margin-top:14px' }, grafico(asc, alvo?.meta || 0))),
+    h('section', { class: 'card' }, h('h2', { text: 'Evolução por dia' }), (S.diario || []).length ? h('div', { class: 'tw' }, tabelaDiaria()) : h('div', { class: 'hint', text: 'O resumo diário começa a ser gravado com as próximas leituras (rode o SQL 04 no Supabase, se ainda não rodou).' })),
     h('section', { class: 'card' }, h('h2', { text: `Últimas leituras (${S.leituras.length})` }), S.leituras.length ? h('div', { class: 'tw' }, tabela) : h('div', { class: 'hint', text: 'Nenhuma leitura registrada ainda.' })));
 }
 
@@ -353,7 +366,7 @@ async function abrirConfig() {
   const v = document.getElementById('view'); if (!v) return;
   if (!S.config) { trocar(v, h('div', { class: 'err', text: S.erroRede || 'Configuração não encontrada. Rode o SQL de instalação no Supabase.' })); return; }
   const c = S.config;
-  const intervalo = h('input', { type: 'number', min: '1', max: '60', inputmode: 'numeric', value: c.intervalo_min });
+  const intervalo = h('input', { type: 'number', min: '10', max: '3600', inputmode: 'numeric', value: c.intervalo_seg || (c.intervalo_min * 60) });
   const tg = h('input', { type: 'checkbox', id: 'tgativo', checked: c.telegram_ativo });
   const lista = h('div', {}, (c.alvos || []).map(editorAlvo));
   const msg = h('div', { style: 'display:none' });
@@ -362,7 +375,7 @@ async function abrirConfig() {
     ev.target.disabled = true;
     try {
       const itv = Math.floor(Number(intervalo.value));
-      if (!(itv >= 1 && itv <= 60)) throw new Error('O intervalo deve ficar entre 1 e 60 minutos.');
+      if (!(itv >= 10 && itv <= 3600)) throw new Error('O intervalo deve ficar entre 10 e 3600 segundos.');
       const usados = new Set(); const alvos = [];
       for (const box of lista.querySelectorAll('.alvo')) {
         const a = box.lerForm();
@@ -371,7 +384,7 @@ async function abrirConfig() {
         alvos.push(a);
       }
       if (!alvos.length) throw new Error('Mantenha pelo menos um evento.');
-      await comando({ intervalo_min: itv, telegram_ativo: tg.checked, alvos });
+      await comando({ intervalo_seg: itv, telegram_ativo: tg.checked, alvos });
       mostra('Salvo. O servidor aplica na próxima leitura.', true);
       await carregarConfig();
     } catch (e) { mostra(traduzErro(e.message), false); }
@@ -389,7 +402,7 @@ async function abrirConfig() {
   trocar(v, 
     S.erroRede ? h('div', { class: 'err', text: S.erroRede }) : null,
     h('section', { class: 'card' }, h('h2', { text: 'Leitura e avisos' }),
-      h('label', { for: 'itv', text: 'Intervalo entre leituras (minutos, de 1 a 60)' }), (intervalo.id = 'itv', intervalo),
+      h('label', { for: 'itv', text: 'Intervalo entre leituras (segundos, de 10 a 3600; sugestão: 15 a 30)' }), (intervalo.id = 'itv', intervalo),
       h('div', { class: 'chk' }, tg, h('label', { for: 'tgativo', text: 'Avisar no Telegram (metas e erros)' })),
       h('div', { class: 'hint', text: `Telegram no servidor: ${S.status?.telegram_configurado ? 'configurado' : 'não configurado'}. O login e a senha do admin do Point ficam só no servidor, nunca neste app.` }),
       h('div', { class: 'actions' }, h('button', { class: 'b', type: 'button', text: 'Testar Telegram', onclick: testarTg }))),

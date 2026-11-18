@@ -12,6 +12,15 @@ function criarTelegram({ token, chatId, api }) {
     if (!r.ok) throw new Error(`Telegram respondeu ${r.status}: ${(await r.text()).slice(0, 150)}`);
     return true;
   }
-  return { enviar, configurado };
+  async function enviarArquivo(nome, conteudo, legenda) {
+    if (!configurado) return false;
+    const f = new FormData();
+    f.append('chat_id', String(chatId)); if (legenda) f.append('caption', legenda);
+    f.append('document', new Blob([conteudo], { type: 'text/csv' }), nome);
+    const r = await fetch(`${base}/bot${token}/sendDocument`, { method: 'POST', body: f, signal: AbortSignal.timeout(60000) });
+    if (!r.ok) throw new Error(`Telegram respondeu ${r.status}: ${(await r.text()).slice(0, 150)}`);
+    return true;
+  }
+  return { enviar, enviarArquivo, configurado };
 }
 module.exports = { criarTelegram };

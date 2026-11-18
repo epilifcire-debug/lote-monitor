@@ -20,6 +20,7 @@ create table if not exists public.lm_config (
   id               int primary key default 1 check (id = 1),
   ativo            boolean not null default true,
   intervalo_min    int not null default 5 check (intervalo_min between 1 and 60),
+  intervalo_seg    int not null default 30 check (intervalo_seg between 10 and 3600),
   telegram_ativo   boolean not null default true,
   alvos            jsonb not null default '[]'::jsonb,
   pedir_leitura_em timestamptz,
@@ -81,7 +82,7 @@ alter table public.lm_alertas  enable row level security;
 revoke all on public.lm_papeis, public.lm_config, public.lm_status, public.lm_leituras, public.lm_alertas from anon;
 revoke all on public.lm_papeis, public.lm_config, public.lm_status, public.lm_leituras, public.lm_alertas from authenticated;
 grant select on public.lm_papeis, public.lm_config, public.lm_status, public.lm_leituras, public.lm_alertas to authenticated;
-grant update (ativo, intervalo_min, telegram_ativo, alvos, pedir_leitura_em, pedir_teste_em, atualizado_em) on public.lm_config to authenticated;
+grant update (ativo, intervalo_min, intervalo_seg, telegram_ativo, alvos, pedir_leitura_em, pedir_teste_em, atualizado_em) on public.lm_config to authenticated;
 grant all on public.lm_papeis, public.lm_config, public.lm_status, public.lm_leituras, public.lm_alertas to service_role;
 
 drop policy if exists lm_papeis_ler on public.lm_papeis;
@@ -120,3 +121,21 @@ insert into public.lm_config (id, alvos) values (1, '[
    "totalGeralEventos": [],
    "meta": 300}
 ]'::jsonb) on conflict (id) do nothing;
+
+-- 8) Resumo diário (ver também 04_resumo_diario.sql)
+create table if not exists public.lm_diario (
+  dia           date not null,
+  alvo_id       text not null,
+  alvo_nome     text,
+  total         int  not null,   -- lotes monitorados no último valor lido do dia
+  total_geral   int,
+  meta          int,
+  atualizado_em timestamptz not null default now(),
+  primary key (dia, alvo_id)
+);
+alter table public.lm_diario enable row level security;
+revoke all on public.lm_diario from anon, authenticated;
+grant select on public.lm_diario to authenticated;
+grant all on public.lm_diario to service_role;
+drop policy if exists lm_diario_ler on public.lm_diario;
+create policy lm_diario_ler on public.lm_diario for select to authenticated using (public.lm_papel() is not null);
